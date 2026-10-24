@@ -1,4 +1,9 @@
 const toDateTimestamp = (date) => date ? `${date}T00:00:00.000Z` : null;
+const toNullableNumber = (value) => {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
 
 export const leadToDatabase = (lead, ownerName = lead.ownerName) => ({
   name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
@@ -10,14 +15,21 @@ export const leadToDatabase = (lead, ownerName = lead.ownerName) => ({
   website: lead.website || null,
   source: lead.source || null,
   owner: ownerName || null,
-  owner_id: lead.ownerId || null,
+  owner_user_id: lead.ownerId || null,
   status: lead.status || 'New',
   stage: lead.stage || 'Prospecting',
   priority: lead.priority || 'Medium',
   score: Number(lead.score) || 0,
   product_interest: lead.productInterest || null,
-  expected_value: Number(lead.expectedValue) || 0,
+  expected_value: toNullableNumber(lead.expectedValue) ?? 0,
   expected_close_date: lead.expectedCloseDate || null,
+  quotation_value: toNullableNumber(lead.quotationValue),
+  quotation_status: lead.quotationStatus || null,
+  quotation_attachment_path: lead.quotationAttachmentPath || null,
+  quotation_attachment_name: lead.quotationAttachmentName || null,
+  quotation_attachment_size: lead.quotationAttachmentSize || null,
+  quotation_attachment_type: lead.quotationAttachmentType || null,
+  quotation_uploaded_at: lead.quotationUploadedAt || null,
   next_follow_up: toDateTimestamp(lead.nextFollowUpDate),
   next_follow_up_time: lead.nextFollowUpTime || null,
   next_follow_up_note: lead.nextFollowUpNote || null,
@@ -28,6 +40,10 @@ export const leadToDatabase = (lead, ownerName = lead.ownerName) => ({
   company_size: lead.companySize || null,
   location: lead.location || null,
   last_activity_date: lead.lastActivityDate || null,
+  qualification_details: lead.qualificationDetails || {},
+  qualified_at: lead.qualifiedAt || null,
+  account_id: lead.accountId || null,
+  contact_id: lead.contactId || null,
 });
 
 const databaseColumns = new Set([
@@ -41,6 +57,7 @@ const databaseColumns = new Set([
   'source',
   'owner',
   'owner_id',
+  'owner_user_id',
   'status',
   'stage',
   'priority',
@@ -48,6 +65,13 @@ const databaseColumns = new Set([
   'product_interest',
   'expected_value',
   'expected_close_date',
+  'quotation_value',
+  'quotation_status',
+  'quotation_attachment_path',
+  'quotation_attachment_name',
+  'quotation_attachment_size',
+  'quotation_attachment_type',
+  'quotation_uploaded_at',
   'next_follow_up',
   'next_follow_up_time',
   'next_follow_up_note',
@@ -58,6 +82,10 @@ const databaseColumns = new Set([
   'company_size',
   'location',
   'last_activity_date',
+  'qualification_details',
+  'qualified_at',
+  'account_id',
+  'contact_id',
   'updated_at',
 ]);
 
@@ -69,7 +97,7 @@ const databaseColumnByUiField = {
   industry: 'industry',
   website: 'website',
   source: 'source',
-  ownerId: 'owner_id',
+  ownerId: 'owner_user_id',
   status: 'status',
   stage: 'stage',
   priority: 'priority',
@@ -77,6 +105,13 @@ const databaseColumnByUiField = {
   productInterest: 'product_interest',
   expectedValue: 'expected_value',
   expectedCloseDate: 'expected_close_date',
+  quotationValue: 'quotation_value',
+  quotationStatus: 'quotation_status',
+  quotationAttachmentPath: 'quotation_attachment_path',
+  quotationAttachmentName: 'quotation_attachment_name',
+  quotationAttachmentSize: 'quotation_attachment_size',
+  quotationAttachmentType: 'quotation_attachment_type',
+  quotationUploadedAt: 'quotation_uploaded_at',
   nextFollowUpDate: 'next_follow_up',
   nextFollowUpTime: 'next_follow_up_time',
   nextFollowUpNote: 'next_follow_up_note',
@@ -87,6 +122,10 @@ const databaseColumnByUiField = {
   companySize: 'company_size',
   location: 'location',
   lastActivityDate: 'last_activity_date',
+  qualificationDetails: 'qualification_details',
+  qualifiedAt: 'qualified_at',
+  accountId: 'account_id',
+  contactId: 'contact_id',
 };
 
 export const leadChangesToDatabase = (currentLead, changes, ownerName) => {
@@ -112,7 +151,7 @@ export const leadChangesToDatabase = (currentLead, changes, ownerName) => {
 
 export const leadFromDatabase = (row, users = []) => {
   const [firstName = '', ...lastNameParts] = (row.name || '').trim().split(/\s+/);
-  const owner = users.find(user => user.id === row.owner_id || user.name === row.owner);
+  const owner = users.find(user => user.id === row.owner_user_id || user.id === row.owner_id || user.name === row.owner);
 
   return {
     id: row.id,
@@ -127,7 +166,7 @@ export const leadFromDatabase = (row, users = []) => {
     companySize: row.company_size || '',
     location: row.location || '',
     source: row.source || '',
-    ownerId: row.owner_id || owner?.id || '',
+    ownerId: row.owner_user_id || owner?.id || '',
     ownerName: row.owner || owner?.name || '',
     status: row.status || 'New',
     stage: row.stage || 'Prospecting',
@@ -143,6 +182,17 @@ export const leadFromDatabase = (row, users = []) => {
     nextFollowUpNote: row.next_follow_up_note || '',
     tags: Array.isArray(row.tags) ? row.tags : [],
     lastActivityDate: row.last_activity_date || '',
+    qualificationDetails: row.qualification_details || {},
+    qualifiedAt: row.qualified_at || '',
+    quotationValue: row.quotation_value == null ? '' : Number(row.quotation_value),
+    quotationStatus: row.quotation_status || 'Not Sent',
+    quotationAttachmentPath: row.quotation_attachment_path || '',
+    quotationAttachmentName: row.quotation_attachment_name || '',
+    quotationAttachmentSize: Number(row.quotation_attachment_size) || 0,
+    quotationAttachmentType: row.quotation_attachment_type || '',
+    quotationUploadedAt: row.quotation_uploaded_at || '',
+    accountId: row.account_id || '',
+    contactId: row.contact_id || '',
     createdAt: row.created_at ? row.created_at.slice(0, 10) : '',
     updatedAt: row.updated_at ? row.updated_at.slice(0, 10) : '',
   };

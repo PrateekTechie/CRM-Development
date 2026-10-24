@@ -16,11 +16,14 @@ import {
 } from 'lucide-react';
 
 export const Sidebar = () => {
-  const { activeModule, setActiveModule, leads, followUps } = useCRM();
+  const { activeModule, setActiveModule, leads, followUps, activeUser } = useCRM();
   const [collapsed, setCollapsed] = useState(false);
 
   const leadsCount = leads ? leads.length : 0;
-  const overdueFollowupsCount = followUps ? followUps.filter(f => f.status === 'Overdue' || f.status === 'Upcoming').length : 0;
+  const currentDate = new Date().toISOString().slice(0, 10);
+  const overdueFollowupsCount = followUps
+    ? followUps.filter(item => item.status === 'Overdue' || (item.status === 'Upcoming' && item.date < currentDate)).length
+    : 0;
 
   const navGroups = [
     {
@@ -147,14 +150,14 @@ export const Sidebar = () => {
         <div className="p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs">
           <div className="flex items-center gap-2.5 truncate">
             <div className="w-7 h-7 rounded-full bg-white/10 border border-white/15 text-cyan-200 font-bold text-xs flex items-center justify-center">
-              AK
+              {activeUser?.avatar || 'U'}
             </div>
             <div className="truncate">
-              <p className="font-bold text-slate-100 truncate">Arjun Kapoor</p>
-              <p className="text-[10px] text-slate-500 truncate">Senior Exec</p>
+              <p className="font-bold text-slate-100 truncate">{activeUser?.name || 'User'}</p>
+              <p className="text-[10px] text-slate-500 truncate">{activeUser?.role || ''}</p>
             </div>
           </div>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="System Connected" />
+          <span className="w-2 h-2 rounded-full bg-emerald-400" title="Authenticated Supabase session" />
         </div>
       )}
     </aside>

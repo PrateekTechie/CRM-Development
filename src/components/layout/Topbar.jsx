@@ -26,6 +26,8 @@ export const Topbar = () => {
     notifications,
     activeUser,
     setActiveModule,
+    requestQuickCreate,
+    signOut,
     addToast
   } = useCRM();
 
@@ -104,8 +106,7 @@ export const Topbar = () => {
               <button
                 onClick={() => {
                   setCreateMenuOpen(false);
-                  setActiveModule('contacts');
-                  addToast('Opening Contacts workspace');
+                  requestQuickCreate('contacts');
                 }}
                 className="w-full text-left px-3.5 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2.5 font-semibold"
               >
@@ -115,8 +116,7 @@ export const Topbar = () => {
               <button
                 onClick={() => {
                   setCreateMenuOpen(false);
-                  setActiveModule('accounts');
-                  addToast('Opening Accounts workspace');
+                  requestQuickCreate('accounts');
                 }}
                 className="w-full text-left px-3.5 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2.5 font-semibold"
               >
@@ -126,8 +126,7 @@ export const Topbar = () => {
               <button
                 onClick={() => {
                   setCreateMenuOpen(false);
-                  setActiveModule('opportunities');
-                  addToast('Opening Pipeline workspace');
+                  requestQuickCreate('opportunities');
                 }}
                 className="w-full text-left px-3.5 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2.5 font-semibold"
               >
@@ -138,8 +137,7 @@ export const Topbar = () => {
               <button
                 onClick={() => {
                   setCreateMenuOpen(false);
-                  setActiveModule('activities');
-                  addToast('Opening Activities log');
+                  requestQuickCreate('activities');
                 }}
                 className="w-full text-left px-3.5 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2.5 font-semibold"
               >
@@ -149,8 +147,7 @@ export const Topbar = () => {
               <button
                 onClick={() => {
                   setCreateMenuOpen(false);
-                  setActiveModule('followups');
-                  addToast('Opening Follow-ups schedule');
+                  requestQuickCreate('followups');
                 }}
                 className="w-full text-left px-3.5 py-2 text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center gap-2.5 font-semibold"
               >
@@ -189,7 +186,7 @@ export const Topbar = () => {
 
         {/* Help Button */}
         <button
-          onClick={() => addToast('Leadwise CRM Documentation', 'info')}
+          onClick={() => addToast('Documentation is not configured for this workspace.', 'info')}
           className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors"
           title="Help & Guides"
         >
@@ -205,10 +202,10 @@ export const Topbar = () => {
             className="flex items-center gap-2.5 p-1 rounded-md hover:bg-slate-100 transition-colors"
           >
             <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center border border-blue-400/40">
-              AK
+              {activeUser?.avatar || 'U'}
             </div>
             <span className="text-xs font-bold text-slate-800 hidden md:inline">
-              Arjun Kapoor
+              {activeUser?.name || 'User'}
             </span>
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
@@ -216,10 +213,10 @@ export const Topbar = () => {
           {profileMenuOpen && (
             <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-md shadow-xl py-1.5 z-50 text-xs">
               <div className="px-4 py-2 border-b border-slate-200">
-                <p className="font-extrabold text-slate-900">{activeUser.name}</p>
-                <p className="text-[11px] text-slate-500 truncate">{activeUser.email}</p>
+                <p className="font-extrabold text-slate-900">{activeUser?.name}</p>
+                <p className="text-[11px] text-slate-500 truncate">{activeUser?.email}</p>
                 <span className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                  {activeUser.role}
+                  {activeUser?.role}
                 </span>
               </div>
               <button
@@ -236,7 +233,10 @@ export const Topbar = () => {
               <button
                 onClick={() => {
                   setProfileMenuOpen(false);
-                  addToast('Session locked. Re-authenticate to return.', 'info');
+                  signOut().catch(error => {
+                    console.error('Sign out failed:', error);
+                    addToast(`Unable to sign out: ${error.message || 'Authentication request failed.'}`, 'danger');
+                  });
                 }}
                 className="w-full text-left px-4 py-2 text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium"
               >

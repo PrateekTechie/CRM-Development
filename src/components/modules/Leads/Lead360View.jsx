@@ -6,6 +6,8 @@ import { Tabs } from '../../ui/Tabs';
 import { Modal } from '../../ui/Modal';
 import { Input } from '../../ui/Input';
 import { Select } from '../../ui/Select';
+import { ConfirmDialog } from '../../ui/ConfirmDialog';
+import { openLeadQuotationAttachment } from '../../../lib/quotationAttachments';
 import {
   User,
   Building2,
@@ -24,18 +26,24 @@ import {
   Award,
   ChevronRight,
   TrendingUp,
-  Share2
+  Share2,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
+import { formatFollowUpDate, getFollowUpStatus, getLastFollowUpDate, getNextFollowUp } from '../../../lib/dateUtils';
+import { formatInrCurrency, parseQuotationValue } from '../../../lib/currencyUtils';
 
 export const Lead360View = () => {
   const {
     leads,
+    activeUser,
     selectedLeadId,
     setActiveModule,
     activities,
     followUps,
     deals,
     addActivity,
+    updateLead,
     scheduleFollowUp,
     qualifyLead,
     createOpportunityFromLead,
@@ -52,49 +60,123 @@ export const Lead360View = () => {
   const [newActType, setNewActType] = useState('Phone');
   const [newActDesc, setNewActDesc] = useState('');
 
-  const [newFlwDate, setNewFlwDate] = useState('2026-10-04');
+  const [newFlwDate, setNewFlwDate] = useState('');
   const [newFlwTime, setNewFlwTime] = useState('10:00 AM');
   const [newFlwNote, setNewFlwNote] = useState('');
+  const [qualification, setQualification] = useState({
+    budgetVerified: false,
+    authorityVerified: false,
+    needVerified: false,
+    timelineVerified: false,
+  });
 
   const [dealTitle, setDealTitle] = useState('');
   const [dealValue, setDealValue] = useState('5000');
   const [dealStage, setDealStage] = useState('Discovery');
+  const [isQuotationEditorOpen, setIsQuotationEditorOpen] = useState(false);
+  const [quotationValueInput, setQuotationValueInput] = useState('');
+  const [quotationValueError, setQuotationValueError] = useState('');
+  const [isSavingQuotationValue, setIsSavingQuotationValue] = useState(false);
+  const [isQuotationDeleteOpen, setIsQuotationDeleteOpen] = useState(false);
+  const [isDeletingQuotationValue, setIsDeletingQuotationValue] = useState(false);
 
-  const lead = leads.find(l => l.id === selectedLeadId) || leads[0] || {
-    id: 'lead-1',
-    firstName: 'Rahul',
-    lastName: 'Sharma',
-    company: 'ABC Technologies',
-    email: 'rahul@example.com',
-    phone: '+91 9876543210',
-    title: 'CTO & VP Engineering',
-    status: 'Working',
-    stage: 'Discovery',
-    priority: 'High',
-    score: 82,
-    expectedValue: 5000,
-    source: 'LinkedIn',
-    ownerName: 'Arjun Kapoor',
-  };
+  const lead = leads.find(l => l.id === selectedLeadId);
+
+  if (!lead) {
+    return (
+      <div className="rounded-lg border border-[#283347] bg-[#161c28] p-8 text-center">
+        <p className="text-sm font-semibold text-slate-100">Lead not found</p>
+        <p className="mt-1 text-xs text-slate-400">The record may have been deleted or you may not have access.</p>
+        <Button className="mt-4" variant="secondary" onClick={() => setActiveModule('leads')}>Back to Leads</Button>
+      </div>
+    );
+  }
 
   const leadActivities = activities.filter(a => a.leadId === lead.id || a.leadName === `${lead.firstName} ${lead.lastName}`);
   const leadFollowups = followUps.filter(f => f.leadId === lead.id || f.leadName === `${lead.firstName} ${lead.lastName}`);
   const leadDeals = deals.filter(d => d.leadId === lead.id || d.company === lead.company);
+  const lastCompletedFollowUp = getLastFollowUpDate(lead, leadActivities, leadFollowups);
+  const nextFollowUp = getNextFollowUp(lead, leadFollowups);
+  const nextFollowUpState = getFollowUpStatus(nextFollowUp?.date, nextFollowUp?.time);
+  const canEditQuotationValue = Boolean(activeUser && activeUser.roleKey !== 'viewer');
+  const hasQuotationValue = lead.quotationValue !== null
+    && lead.quotationValue !== undefined
+    && lead.quotationValue !== '';
+  const quotationAttachmentTypeLabel = lead.quotationAttachmentName?.includes('.')
+    ? lead.quotationAttachmentName.split('.').pop().toUpperCase()
+    : ({
+      'application/pdf': 'PDF',
+      'application/msword': 'DOC',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+      'application/vnd.ms-excel': 'XLS',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+      'image/png': 'PNG',
+      'image/jpeg': 'JPG',
+      'image/webp': 'WEBP',
+    }[lead.quotationAttachmentType] || '');
 
-  const handleLogActivity = () => {
-    addActivity({
+  const openQuotationEditor = () => {
+    setQuotationValueInput(hasQuotationValue ? String(lead.quotationValue) : '');
+    setQuotationValueError('');
+    setIsQuotationEditorOpen(true);
+  };
+
+  const handleSaveQuotationValue = async (event) => {
+    event.preventDefault();
+    const amount = parseQuotationValue(quotationValueInput);
+    if (amount === undefined || amount === null) {
+      setQuotationValueError('Enter a non-negative amount with up to 10 digits and 2 decimal places.');
+      return;
+    }
+
+    setIsSavingQuotationValue(true);
+    try {
+      const saved = await updateLead(lead.id, { quotationValue: amount }, null, 'Quotation value saved.');
+      if (saved) setIsQuotationEditorOpen(false);
+    } finally {
+      setIsSavingQuotationValue(false);
+    }
+  };
+
+  const handleDeleteQuotationValue = async () => {
+    setIsDeletingQuotationValue(true);
+    try {
+      const removed = await updateLead(lead.id, { quotationValue: null }, null, 'Quotation value removed.');
+      if (removed) setIsQuotationDeleteOpen(false);
+    } finally {
+      setIsDeletingQuotationValue(false);
+    }
+  };
+
+  const handleOpenQuotationAttachment = async () => {
+    try {
+      await openLeadQuotationAttachment(lead.id, lead.quotationAttachmentPath);
+    } catch (error) {
+      console.error('Unable to open quotation attachment:', error);
+      addToast(`This quotation file could not be opened: ${error.message || 'Supabase request failed.'}`, 'warning');
+    }
+  };
+
+  const handleLogActivity = async () => {
+    const saved = await addActivity({
       leadId: lead.id,
       leadName: `${lead.firstName} ${lead.lastName}`,
       company: lead.company,
       type: newActType,
       description: newActDesc || 'Logged quick communication update.',
     });
-    setIsLogActivityModalOpen(false);
-    setNewActDesc('');
+    if (saved) {
+      setIsLogActivityModalOpen(false);
+      setNewActDesc('');
+    }
   };
 
-  const handleScheduleFollowUp = () => {
-    scheduleFollowUp({
+  const handleScheduleFollowUp = async () => {
+    if (!newFlwDate) {
+      addToast('Select a follow-up date before scheduling.', 'warning');
+      return;
+    }
+    const saved = await scheduleFollowUp({
       leadId: lead.id,
       leadName: `${lead.firstName} ${lead.lastName}`,
       company: lead.company,
@@ -103,23 +185,32 @@ export const Lead360View = () => {
       time: newFlwTime,
       notes: newFlwNote || 'Follow-up note',
     });
-    setIsScheduleFollowUpModalOpen(false);
-    setNewFlwNote('');
+    if (saved) {
+      setIsScheduleFollowUpModalOpen(false);
+      setNewFlwDate('');
+      setNewFlwNote('');
+    }
   };
 
-  const handleQualifySubmit = () => {
-    qualifyLead(lead.id);
-    setIsQualifyModalOpen(false);
+  const handleQualifySubmit = async () => {
+    if (!Object.values(qualification).every(Boolean)) {
+      addToast('Confirm all qualification criteria before qualifying this lead.', 'warning');
+      return;
+    }
+    const saved = await qualifyLead(lead.id, qualification);
+    if (saved) setIsQualifyModalOpen(false);
   };
 
-  const handleCreateDealSubmit = () => {
-    createOpportunityFromLead(lead.id, {
+  const handleCreateDealSubmit = async () => {
+    const saved = await createOpportunityFromLead(lead.id, {
       title: dealTitle || `${lead.company} Sales CRM Deal`,
       value: dealValue,
       stage: dealStage,
     });
-    setIsCreateDealModalOpen(false);
-    setActiveModule('opportunities');
+    if (saved) {
+      setIsCreateDealModalOpen(false);
+      setActiveModule('opportunities');
+    }
   };
 
   return (
@@ -157,22 +248,35 @@ export const Lead360View = () => {
 
           {/* Quick Actions Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            <Button
+            {lead.phone ? <a
+              href={`tel:${lead.phone}`}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-[#283347] bg-[#121826] px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-[#1c2433]"
+            >
+              <PhoneCall className="h-4 w-4" />Call
+            </a> : <Button
               variant="secondary"
               size="sm"
               icon={PhoneCall}
-              onClick={() => addToast(`Initiating call to ${lead.phone}...`, 'info')}
+              disabled
+              title="Add a phone number to this lead to call."
             >
-              Call
-            </Button>
-            <Button
+              No phone
+            </Button>}
+            {lead.email ? <button
+              type="button"
+              onClick={() => window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(lead.email)}`, '_blank', 'noopener,noreferrer')}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-[#283347] bg-[#121826] px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-[#1c2433]"
+            >
+              <Mail className="h-4 w-4" />Email
+            </button> : <Button
               variant="secondary"
               size="sm"
               icon={Mail}
-              onClick={() => addToast(`Opening email compose for ${lead.email}...`, 'info')}
+              onClick={() => addToast('This lead has no email address.', 'warning')}
+              title="Add an email address to this lead to compose an email."
             >
-              Email
-            </Button>
+              No email
+            </Button>}
             <Button
               variant="secondary"
               size="sm"
@@ -230,15 +334,22 @@ export const Lead360View = () => {
           </div>
 
           <div className="p-3 bg-[#121826] border border-[#273552] rounded-md">
-            <span className="text-slate-400 font-medium">Assigned Owner</span>
-            <p className="text-sm font-bold text-slate-100 mt-1">{lead.ownerName || 'Arjun Kapoor'}</p>
+            <span className="text-slate-400 font-medium">Last Follow-up</span>
+            <p className="text-xs font-bold text-slate-100 mt-1">
+              {lastCompletedFollowUp ? formatFollowUpDate(lastCompletedFollowUp.date) : 'No completed contact'}
+            </p>
           </div>
 
           <div className="p-3 bg-[#121826] border border-[#273552] rounded-md">
             <span className="text-slate-400 font-medium">Next Follow-up</span>
             <p className="text-xs font-bold text-amber-400 mt-1">
-              {lead.nextFollowUpDate || 'Tomorrow, 10:00 AM'}
+              {nextFollowUp ? formatFollowUpDate(nextFollowUp.date, nextFollowUp.time) : 'Not Scheduled'}
             </p>
+            {nextFollowUp && (
+              <span className="inline-flex mt-1 rounded border border-blue-700 bg-blue-950 px-1.5 py-0.5 text-[10px] font-semibold text-blue-300">
+                {nextFollowUpState.label}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -298,6 +409,55 @@ export const Lead360View = () => {
                 <div>
                   <span className="text-slate-400 block font-medium">Location:</span>
                   <span className="font-bold text-slate-200">{lead.location || 'Bengaluru, India'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block font-medium">Expected Close Date:</span>
+                  <span className="font-bold text-slate-200">{lead.expectedCloseDate ? formatFollowUpDate(lead.expectedCloseDate) : 'Not set'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block font-medium">Quotation Value:</span>
+                  <span className="font-bold text-slate-200">{formatInrCurrency(lead.quotationValue)}</span>
+                  {canEditQuotationValue && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" icon={Edit2} onClick={openQuotationEditor}>
+                        {hasQuotationValue ? 'Edit Value' : 'Add Value'}
+                      </Button>
+                      {hasQuotationValue && (
+                        <Button size="sm" variant="danger" icon={Trash2} onClick={() => setIsQuotationDeleteOpen(true)}>
+                          Remove Value
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <span className="text-slate-400 block font-medium">Quotation Status:</span>
+                  <span className="font-bold text-slate-200">{lead.quotationStatus || 'Not Sent'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block font-medium">Quotation Attachment:</span>
+                  {lead.quotationAttachmentPath ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5 font-bold text-slate-100">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
+                        <span className="max-w-56 truncate">{lead.quotationAttachmentName || 'Quotation attachment'}</span>
+                      </span>
+                      {quotationAttachmentTypeLabel && (
+                        <span className="rounded border border-[#364559] bg-[#121826] px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                          {quotationAttachmentTypeLabel}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenQuotationAttachment()}
+                        className="text-xs font-semibold text-cyan-300 underline hover:text-cyan-200"
+                      >
+                        View
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="mt-1 block text-xs text-slate-400">No quotation attached</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -484,7 +644,7 @@ export const Lead360View = () => {
 
       <Modal isOpen={isScheduleFollowUpModalOpen} onClose={() => setIsScheduleFollowUpModalOpen(false)} title="Schedule Next Follow-up">
         <div className="space-y-4">
-          <Input label="Follow-up Date" type="date" value={newFlwDate} onChange={(e) => setNewFlwDate(e.target.value)} />
+          <Input label="Follow-up Date" type="date" required value={newFlwDate} onChange={(e) => setNewFlwDate(e.target.value)} />
           <Input label="Time" value={newFlwTime} onChange={(e) => setNewFlwTime(e.target.value)} />
           <Input label="Instruction / Task Note" value={newFlwNote} onChange={(e) => setNewFlwNote(e.target.value)} placeholder="e.g. Call Rahul to review proposal specs." />
           <div className="flex justify-end gap-2 pt-2 border-t border-[#273552]">
@@ -499,20 +659,20 @@ export const Lead360View = () => {
           <p className="text-xs text-slate-300 font-medium">Verify lead qualification criteria before advancing status:</p>
           <div className="space-y-2 text-xs">
             <label className="flex items-center gap-2 p-2 bg-[#121826] rounded border border-[#273552] font-semibold text-slate-200">
-              <input type="checkbox" defaultChecked className="rounded text-blue-600" />
-              <span>Budget Verified (₹5,000+)</span>
+              <input type="checkbox" checked={qualification.budgetVerified} onChange={event => setQualification({ ...qualification, budgetVerified: event.target.checked })} className="rounded text-blue-600" />
+              <span>Budget verified for this opportunity</span>
             </label>
             <label className="flex items-center gap-2 p-2 bg-[#121826] rounded border border-[#273552] font-semibold text-slate-200">
-              <input type="checkbox" defaultChecked className="rounded text-blue-600" />
-              <span>Authority Verified (CTO / VP Level)</span>
+              <input type="checkbox" checked={qualification.authorityVerified} onChange={event => setQualification({ ...qualification, authorityVerified: event.target.checked })} className="rounded text-blue-600" />
+              <span>Decision-making authority confirmed</span>
             </label>
             <label className="flex items-center gap-2 p-2 bg-[#121826] rounded border border-[#273552] font-semibold text-slate-200">
-              <input type="checkbox" defaultChecked className="rounded text-blue-600" />
-              <span>Requirement Matched (Sales CRM)</span>
+              <input type="checkbox" checked={qualification.needVerified} onChange={event => setQualification({ ...qualification, needVerified: event.target.checked })} className="rounded text-blue-600" />
+              <span>Customer need and product fit confirmed</span>
             </label>
             <label className="flex items-center gap-2 p-2 bg-[#121826] rounded border border-[#273552] font-semibold text-slate-200">
-              <input type="checkbox" defaultChecked className="rounded text-blue-600" />
-              <span>Timeline Defined (Close by Oct 2026)</span>
+              <input type="checkbox" checked={qualification.timelineVerified} onChange={event => setQualification({ ...qualification, timelineVerified: event.target.checked })} className="rounded text-blue-600" />
+              <span>Buying timeline confirmed</span>
             </label>
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-[#273552]">
@@ -533,6 +693,61 @@ export const Lead360View = () => {
           </div>
         </div>
       </Modal>
+
+      <Modal
+        isOpen={isQuotationEditorOpen}
+        onClose={() => {
+          if (isSavingQuotationValue) return;
+          setIsQuotationEditorOpen(false);
+          setQuotationValueError('');
+        }}
+        title={hasQuotationValue ? 'Edit Quotation Value' : 'Add Quotation Value'}
+        subtitle="This amount is stored separately from Expected Deal Value."
+      >
+        <form className="space-y-4" onSubmit={handleSaveQuotationValue}>
+          <Input
+            label="Quotation Value (₹)"
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={quotationValueInput}
+            onChange={(event) => {
+              setQuotationValueInput(event.target.value);
+              setQuotationValueError('');
+            }}
+            error={quotationValueError}
+            helperText="Enter up to 10 whole-number digits and 2 decimal places."
+            placeholder="e.g. 125000.50"
+          />
+          <div className="flex justify-end gap-2 border-t border-[#283347] pt-3">
+            <Button
+              variant="secondary"
+              disabled={isSavingQuotationValue}
+              onClick={() => {
+                setIsQuotationEditorOpen(false);
+                setQuotationValueError('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={isSavingQuotationValue}>
+              Save Quotation Value
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={isQuotationDeleteOpen}
+        onClose={() => {
+          if (!isDeletingQuotationValue) setIsQuotationDeleteOpen(false);
+        }}
+        onConfirm={handleDeleteQuotationValue}
+        loading={isDeletingQuotationValue}
+        title="Remove Quotation Value?"
+        message="This sets only the quotation amount to empty. The lead, quotation status, and uploaded attachment will remain unchanged."
+        confirmText="Remove Value"
+      />
 
     </div>
   );

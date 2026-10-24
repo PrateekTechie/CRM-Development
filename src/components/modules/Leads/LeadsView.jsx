@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '../../../context/CRMContext';
+import { formatFollowUpDate, getFollowUpStatus, getLastFollowUpDate, getNextFollowUp } from '../../../lib/dateUtils';
+import { formatInrCurrency } from '../../../lib/currencyUtils';
+import { openLeadQuotationAttachment } from '../../../lib/quotationAttachments';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
 import { Input } from '../../ui/Input';
@@ -21,12 +24,33 @@ import {
   ChevronDown,
   ArrowUpDown,
   Eye,
-  Edit2
+  Edit2,
+  FileText
 } from 'lucide-react';
+
+const COLUMN_ORDER = [
+  ['checkbox', 'Checkbox'],
+  ['lead', 'Lead Name'],
+  ['company', 'Company'],
+  ['source', 'Source'],
+  ['owner', 'Owner'],
+  ['status', 'Status'],
+  ['stage', 'Stage'],
+  ['priority', 'Priority'],
+  ['expectedValue', 'Expected Deal Value'],
+  ['quotationValue', 'Quotation Value'],
+  ['quotationStatus', 'Quotation Status'],
+  ['lastFollowUp', 'Last Follow-up'],
+  ['nextFollowUp', 'Next Follow-up'],
+  ['expectedClosingDate', 'Expected Closing Date'],
+  ['actions', 'Actions'],
+];
 
 export const LeadsView = () => {
   const {
     leads,
+    activities,
+    followUps,
     leadsLoading,
     leadsError,
     reloadLeads,
@@ -53,7 +77,7 @@ export const LeadsView = () => {
   const [filterPriority, setFilterPriority] = useState('All');
   const [filterSource, setFilterSource] = useState('All');
   const [filterOwner, setFilterOwner] = useState('All');
-  const [sortBy, setSortBy] = useState('createdAt'); // createdAt, score, expectedValue, name
+  const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
 
   // Modals & Drawers
@@ -128,6 +152,16 @@ export const LeadsView = () => {
     setSelectedRows(prev =>
       prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
     );
+  };
+
+  const handleOpenQuotationAttachment = async (event, lead) => {
+    event.stopPropagation();
+    try {
+      await openLeadQuotationAttachment(lead.id, lead.quotationAttachmentPath);
+    } catch (error) {
+      console.error('Unable to open quotation attachment:', error);
+      addToast(`This quotation file could not be opened: ${error.message || 'Supabase request failed.'}`, 'warning');
+    }
   };
 
   // CSV Export
@@ -354,9 +388,12 @@ export const LeadsView = () => {
                 {visibleColumns.status && <th className="py-3 px-3">Status</th>}
                 {visibleColumns.stage && <th className="py-3 px-3">Stage</th>}
                 {visibleColumns.priority && <th className="py-3 px-3">Priority</th>}
-                {visibleColumns.score && <th className="py-3 px-3">Score</th>}
-                {visibleColumns.expectedValue && <th className="py-3 px-3">Expected Value</th>}
+                {visibleColumns.expectedValue && <th className="py-3 px-3">Expected Deal Value</th>}
+                {visibleColumns.quotationValue && <th className="py-3 px-3">Quotation Value</th>}
+                {visibleColumns.quotationStatus && <th className="py-3 px-3">Quotation Status</th>}
+                {visibleColumns.lastFollowUp && <th className="py-3 px-3">Last Follow-up</th>}
                 {visibleColumns.nextFollowUp && <th className="py-3 px-3">Next Follow-up</th>}
+                {visibleColumns.expectedClosingDate && <th className="py-3 px-3">Expected Closing Date</th>}
                 {visibleColumns.actions && <th className="py-3 px-3 text-right">Actions</th>}
               </tr>
             </thead>
@@ -425,23 +462,68 @@ export const LeadsView = () => {
                         <Badge variant={lead.priority.toLowerCase()}>{lead.priority}</Badge>
                       </td>
                     )}
-                    {visibleColumns.score && (
-                      <td className="py-2.5 px-3">
-                        <span className={`inline-block px-2 py-0.5 rounded font-bold text-[11px] ${
-                          lead.score >= 80 ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-blue-950 text-blue-400 border border-blue-800'
-                        }`}>
-                          {lead.score}
-                        </span>
-                      </td>
-                    )}
                     {visibleColumns.expectedValue && (
                       <td className="py-2.5 px-3 font-semibold text-emerald-400">
-                        ₹{lead.expectedValue?.toLocaleString('en-IN')}
+                        ₹{Number(lead.expectedValue || 0).toLocaleString('en-IN')}
+                      </td>
+                    )}
+                    {visibleColumns.quotationValue && (
+                      <td className="py-2.5 px-3 font-semibold text-cyan-300">
+                        {formatInrCurrency(lead.quotationValue)}
+                      </td>
+                    )}
+                    {visibleColumns.quotationStatus && (
+                      <td className="py-2.5 px-3">
+                        <Badge variant={String(lead.quotationStatus || 'Not Sent').toLowerCase().replaceAll(' ', '-')}>
+                          {lead.quotationStatus || 'Not Sent'}
+                        </Badge>
+                        {lead.quotationAttachmentPath && (
+                          <button
+                            type="button"
+                            title={lead.quotationAttachmentName || 'Open quotation attachment'}
+                            onClick={(event) => void handleOpenQuotationAttachment(event, lead)}
+                            className="mt-1 flex max-w-36 items-center gap-1 text-left text-[10px] font-medium text-cyan-300 hover:text-cyan-200"
+                          >
+                            <FileText className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{lead.quotationAttachmentName || 'View attachment'}</span>
+                          </button>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.lastFollowUp && (
+                      <td className="py-2.5 px-3 text-slate-300 text-[11px]">
+                        {(() => {
+                          const lastFollowUp = getLastFollowUpDate(lead, activities, followUps);
+                          return lastFollowUp ? formatFollowUpDate(lastFollowUp.date) : 'No completed contact';
+                        })()}
                       </td>
                     )}
                     {visibleColumns.nextFollowUp && (
                       <td className="py-2.5 px-3 text-slate-300 text-[11px]">
-                        {lead.nextFollowUpDate || 'None'}
+                        {(() => {
+                          const nextFollowUp = getNextFollowUp(lead, followUps);
+                          if (!nextFollowUp) return 'Not Scheduled';
+                          const status = getFollowUpStatus(nextFollowUp.date, nextFollowUp.time);
+                          const toneStyles = {
+                            danger: 'bg-rose-950 text-rose-300 border border-rose-800',
+                            warning: 'bg-amber-950 text-amber-300 border border-amber-800',
+                            info: 'bg-blue-950 text-blue-300 border border-blue-800',
+                            neutral: 'bg-slate-800 text-slate-300 border border-slate-700',
+                          };
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <span>{formatFollowUpDate(nextFollowUp.date, nextFollowUp.time)}</span>
+                              <span className={`inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-semibold ${toneStyles[status.tone] || toneStyles.neutral}`}>
+                                {status.label}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    )}
+                    {visibleColumns.expectedClosingDate && (
+                      <td className="py-2.5 px-3 text-slate-300 text-[11px]">
+                        {lead.expectedCloseDate ? formatFollowUpDate(lead.expectedCloseDate) : 'Not set'}
                       </td>
                     )}
                     {visibleColumns.actions && (
@@ -498,11 +580,9 @@ export const LeadsView = () => {
         width="max-w-sm"
       >
         <div className="space-y-3">
-          {Object.keys(visibleColumns).map(colKey => (
+          {COLUMN_ORDER.map(([colKey, label]) => (
             <label key={colKey} className="flex items-center justify-between p-2.5 bg-[#121722] border border-[#283347] rounded-md cursor-pointer hover:bg-[#161c28]">
-              <span className="text-xs font-semibold text-slate-200 capitalize">
-                {colKey.replace(/([A-Z])/g, ' $1')}
-              </span>
+              <span className="text-xs font-semibold text-slate-200">{label}</span>
               <input
                 type="checkbox"
                 checked={visibleColumns[colKey]}
